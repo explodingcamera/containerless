@@ -1,0 +1,17 @@
+[package]
+name="uniko"
+version="0.1.0"
+edition="2024"
+
+[dependencies]
+clap={version="4.6", features=["derive"]}
+clap_complete="4.6.7"
+config="0.15.25"
+oci-client="0.17.0"
+oci-spec="0.10.0"
+schemars="1.2.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+tokio="1.52"
+tracing="0.1.44"
+tracing-appender="0.2.5"
