@@ -1,2 +1,2 @@
 [alias]
-generate-config-schema = "test config::tests::generate_config_schema -- --ignored --exact"
+generate-config-schema = "test -p containerless config::tests::generate_config_schema -- --ignored --exact"

@@ -5,7 +5,7 @@ use clap::{Args, Parser, Subcommand};
 
 #[derive(Debug, Parser)]
 #[command(name = "containerless", version)]
-#[command(about = "Package prebuilt files into OCI container images")]
+#[command(about = "Build minimal, multi-platform OCI images from local files")]
 pub struct Cli {
     /// Configuration file. Supported extensions: toml and json.
     #[arg(short = 'f', long = "file", global = true, value_name = "PATH")]

@@ -1,0 +1,12 @@
+[package]
+name = "cargo-containerless"
+version.workspace = true
+edition.workspace = true
+description = "Build Rust artifacts and package them as OCI images"
+
+[[bin]]
+name = "cargo-containerless"
+path = "src/main.rs"
+
+[dependencies]
+containerless.workspace = true

@@ -17,5 +17,5 @@ files = {
 }
 labels = {
   "org.opencontainers.image.title" = "Containerless",
-  "org.opencontainers.image.description" = "Package prebuilt files into OCI container images"
+  "org.opencontainers.image.description" = "Build minimal, multi-platform OCI images from local files"
 }

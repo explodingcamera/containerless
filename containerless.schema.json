@@ -299,7 +299,7 @@
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "A versioned collection of reusable layers and images to package.",
+  "description": "A versioned collection of OCI images and reusable layers to build.",
   "properties": {
     "containerless": {
       "description": "Containerless configuration format version. The only supported value is `1`.",

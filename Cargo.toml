@@ -1,15 +1,24 @@
-[package]
-name = "containerless"
+[workspace]
+resolver = "3"
+members = [
+  "crates/cargo-containerless",
+  "crates/containerless",
+  "crates/containerless-core",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
+[workspace.dependencies]
 clap = { version = "4.6", features = ["derive"] }
 config = {
   version = "0.15",
   default-features = false,
   features = ["json5", "toml"]
 }
+containerless = { path = "crates/containerless" }
+containerless-core = { path = "crates/containerless-core" }
 schemars = "1.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

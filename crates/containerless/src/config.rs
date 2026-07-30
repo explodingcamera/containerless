@@ -13,7 +13,7 @@ pub const DEFAULT_CONFIG_FILES: [&str; 2] = ["containerless.toml", "containerles
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(title = "Containerless configuration")]
-/// A versioned collection of reusable layers and images to package.
+/// A versioned collection of OCI images and reusable layers to build.
 pub struct Config {
     /// Containerless configuration format version. The only supported value is `1`.
     #[schemars(range(min = 1, max = 1))]
@@ -430,7 +430,11 @@ mod tests {
 
     #[test]
     fn self_packaging_config_is_valid() {
-        Config::parse(include_str!("../containerless.toml"), ConfigFormat::Toml).unwrap();
+        Config::parse(
+            include_str!("../../../containerless.toml"),
+            ConfigFormat::Toml,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -443,7 +447,7 @@ mod tests {
             serde_json::json!("v1.1.0"),
         );
         let json = serde_json::to_string_pretty(&schema).unwrap();
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("containerless.schema.json");
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../containerless.schema.json");
         fs::write(path, format!("{json}\n")).unwrap();
     }
 }

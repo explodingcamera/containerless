@@ -1,0 +1,8 @@
+[package]
+name = "containerless-core"
+version.workspace = true
+edition.workspace = true
+description = "Config-independent OCI image construction without a container runtime"
+
+[lib]
+name = "containerless_core"

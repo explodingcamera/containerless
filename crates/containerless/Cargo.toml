@@ -1,0 +1,12 @@
+[package]
+name = "containerless"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+clap.workspace = true
+config.workspace = true
+containerless-core.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
