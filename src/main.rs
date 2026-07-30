@@ -1,6 +1,6 @@
-mod cli;
-mod config;
+use clap::Parser;
+use containerless::cli::Cli;
 
 fn main() {
-    println!("Hello, world!");
+    let _cli = Cli::parse();
 }

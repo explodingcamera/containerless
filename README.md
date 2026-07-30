@@ -1,3 +1,3 @@
-# uniko - universal container image builder
+# Containerless
 
 > Work in progress
