@@ -1,0 +1,2 @@
+[alias]
+generate-config-schema = "test config::tests::generate_config_schema -- --ignored --exact"

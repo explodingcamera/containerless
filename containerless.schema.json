@@ -1,0 +1,334 @@
+{
+  "$defs": {
+    "Base": {
+      "anyOf": [
+        {
+          "description": "An OCI image reference, or `scratch` for an empty base.",
+          "type": "string"
+        },
+        {
+          "description": "Another image declared in this configuration.",
+          "properties": {
+            "image": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "image"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "The external or locally configured image used as an image's base."
+    },
+    "FileMapping": {
+      "anyOf": [
+        {
+          "description": "A `SOURCE:DESTINATION` mapping with default behavior.",
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/FileOptions",
+          "description": "A mapping with explicit source, destination, filtering, and archive metadata."
+        }
+      ],
+      "description": "A local file mapping in shorthand `SOURCE:DESTINATION` or detailed object form."
+    },
+    "FileOptions": {
+      "additionalProperties": false,
+      "description": "Detailed options for copying a local file or directory into an image layer.",
+      "properties": {
+        "exclude": {
+          "default": [],
+          "description": "Git-style glob patterns to exclude after inclusion.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "follow_symlinks": {
+          "default": false,
+          "description": "Follow symlink targets instead of archiving symlinks. Defaults to `false`.",
+          "type": "boolean"
+        },
+        "from": {
+          "$ref": "#/$defs/PlatformValue",
+          "description": "Local source path, optionally selected by OCI platform."
+        },
+        "include": {
+          "default": [],
+          "description": "Git-style glob patterns to include, evaluated relative to the source directory.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Mode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Portable file mode, preferably an octal string such as `0755`."
+        },
+        "owner": {
+          "default": null,
+          "description": "Numeric owner in `UID` or `UID:GID` form.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parents": {
+          "default": false,
+          "description": "Preserve leading source path components similarly to Docker COPY `--parents`.",
+          "type": "boolean"
+        },
+        "to": {
+          "description": "Absolute destination path in the image.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
+    "Image": {
+      "additionalProperties": false,
+      "description": "An OCI image assembled from a base, named layers, local files, and runtime metadata.",
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "OCI annotations added to the image manifest or index.",
+          "type": "object"
+        },
+        "base": {
+          "$ref": "#/$defs/Base",
+          "default": "scratch",
+          "description": "External OCI image reference or configured image to use as the base. Defaults to `scratch`."
+        },
+        "command": {
+          "default": null,
+          "description": "Default arguments passed to the entrypoint.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "entrypoint": {
+          "default": null,
+          "description": "Executable and fixed arguments used when the container starts.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "Environment variables added to the image runtime configuration.",
+          "type": "object"
+        },
+        "files": {
+          "$ref": "#/$defs/ImageFiles",
+          "default": [],
+          "description": "Files placed in one implicit final layer after all named layers. Accepts either an array of\nmappings or one detailed mapping object."
+        },
+        "flatten": {
+          "default": false,
+          "description": "Apply the base and added layers, then emit the complete filesystem as one layer.",
+          "type": "boolean"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "Docker-compatible image labels added to the runtime configuration.",
+          "type": "object"
+        },
+        "layers": {
+          "default": [],
+          "description": "Named layers to append in this order after all base-image layers.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ports": {
+          "default": null,
+          "description": "Exposed ports in `PORT/PROTOCOL` form, such as `8080/tcp`.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "squash": {
+          "default": false,
+          "description": "Combine all layers added by Containerless into one new layer while preserving base layers.",
+          "type": "boolean"
+        },
+        "stop_signal": {
+          "default": null,
+          "description": "Signal used to stop the container, such as `SIGTERM`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tags": {
+          "default": [],
+          "description": "Complete image references used when publishing, such as `ghcr.io/example/app:v1`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "user": {
+          "default": null,
+          "description": "User and optional group used to run the container, such as `65532:65532`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "volumes": {
+          "default": null,
+          "description": "Container paths intended to hold externally mounted volumes.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "workdir": {
+          "default": null,
+          "description": "Working directory used when the container starts.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ImageFiles": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FileOptions",
+          "description": "One detailed file mapping."
+        },
+        {
+          "description": "An ordered list of file mappings.",
+          "items": {
+            "$ref": "#/$defs/FileMapping"
+          },
+          "type": "array"
+        }
+      ],
+      "description": "One detailed image file mapping or an array of shorthand and detailed mappings."
+    },
+    "Layer": {
+      "additionalProperties": false,
+      "description": "A reusable, ordered collection of local files that produces one OCI layer.",
+      "properties": {
+        "files": {
+          "default": [],
+          "description": "Files and directories to include in this layer.",
+          "items": {
+            "$ref": "#/$defs/FileMapping"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "Mode": {
+      "anyOf": [
+        {
+          "description": "Octal mode string, such as `0755`.",
+          "type": "string"
+        },
+        {
+          "description": "Numeric mode accepted by formats that preserve integer representation.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      ],
+      "description": "A Unix permission mode represented as a portable octal string or an integer."
+    },
+    "PlatformValue": {
+      "anyOf": [
+        {
+          "description": "A value used for every output platform.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Values keyed by OCI platform, with an optional `default` fallback.",
+          "type": "object"
+        }
+      ],
+      "description": "A value shared by every platform or selected from a map keyed by OCI platform."
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A versioned collection of reusable layers and images to package.",
+  "properties": {
+    "containerless": {
+      "description": "Containerless configuration format version. The only supported value is `1`.",
+      "format": "uint32",
+      "maximum": 1,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "images": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Image"
+      },
+      "default": {},
+      "description": "Images keyed by the name used on the command line and by local image bases.",
+      "type": "object"
+    },
+    "layers": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Layer"
+      },
+      "default": {},
+      "description": "Reusable filesystem layers keyed by layer name.",
+      "type": "object"
+    }
+  },
+  "required": [
+    "containerless"
+  ],
+  "title": "Containerless configuration",
+  "type": "object",
+  "x-tombi-toml-version": "v1.1.0"
+}

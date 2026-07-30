@@ -1,0 +1,21 @@
+#:schema ./containerless.schema.json
+
+containerless = 1
+
+[images.containerless]
+base = "gcr.io/distroless/cc-debian12:nonroot"
+entrypoint = ["/usr/local/bin/containerless"]
+user = "65532:65532"
+files = {
+  from = {
+    "linux/amd64" = "target/x86_64-unknown-linux-gnu/release/containerless",
+    "linux/arm64" = "target/aarch64-unknown-linux-gnu/release/containerless"
+  },
+  to = "/usr/local/bin/containerless",
+  mode = "0755",
+  owner = "65532:65532"
+}
+labels = {
+  "org.opencontainers.image.title" = "Containerless",
+  "org.opencontainers.image.description" = "Package prebuilt files into OCI container images"
+}

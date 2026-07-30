@@ -120,6 +120,7 @@ dependencies = [
  "config",
  "schemars",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
