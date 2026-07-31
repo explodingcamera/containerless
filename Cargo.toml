@@ -12,11 +12,11 @@ edition = "2024"
 
 [workspace.dependencies]
 clap = { version = "4.6", features = ["derive"] }
-config = {
-  version = "0.15",
-  default-features = false,
-  features = ["json5", "toml"]
-}
+config = { version = "0.15", default-features = false, features = [
+  "json",
+  "toml",
+  "yaml"
+] }
 containerless = { path = "crates/containerless" }
 containerless-core = { path = "crates/containerless-core" }
 schemars = "1.2"
