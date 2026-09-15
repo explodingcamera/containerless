@@ -2,15 +2,17 @@
 name = "containerless-core"
 version.workspace = true
 edition.workspace = true
-description = "Build OCI images without a container runtime"
+description = "Build and publish OCI images without a container runtime"
 
 [lib]
 name = "containerless_core"
 
 [dependencies]
+docker_credential.workspace = true
 flate2.workspace = true
 globset.workspace = true
 hex.workspace = true
+oci-client.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

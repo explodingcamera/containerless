@@ -25,3 +25,22 @@ pub enum BuildError {
     #[error("{0}")]
     Unsupported(String),
 }
+
+/// An error produced while pulling or publishing OCI images.
+#[derive(Debug, Error)]
+#[error("{0}")]
+pub struct RegistryError(pub(crate) String);
+
+/// An error produced while building and publishing an image set.
+#[derive(Debug, Error)]
+pub enum PublishError {
+    /// OCI image construction failed.
+    #[error(transparent)]
+    Build(#[from] BuildError),
+    /// Registry access failed.
+    #[error(transparent)]
+    Registry(#[from] RegistryError),
+    /// The image set cannot be published.
+    #[error("{0}")]
+    Invalid(String),
+}
