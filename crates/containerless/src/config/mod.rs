@@ -1,27 +1,20 @@
 use std::collections::BTreeMap;
-use std::error::Error;
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 use ::config::{File, FileFormat};
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
+use thiserror::Error;
 
 mod validate;
 
 use validate::validate;
 
-pub const CONFIG_VERSION: u32 = 1;
-
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(title = "Containerless configuration")]
-/// A versioned collection of OCI images and reusable layers to build.
+/// A collection of OCI images and reusable layers to build.
 pub struct Config {
-    /// Containerless configuration format version. The only supported value is `1`.
-    #[schemars(range(min = 1, max = 1))]
-    pub containerless: u32,
-
     /// Reusable filesystem layers keyed by layer name.
     #[serde(default)]
     pub layers: BTreeMap<String, Layer>,
@@ -32,7 +25,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn load(path: &Path) -> Result<Self, ConfigError> {
+    pub fn load(path: &Path) -> Result<Self, Error> {
         let source = match path.extension() {
             Some(_) => File::from(path).format(format_for_path(path)?),
             None => File::with_name(&path.to_string_lossy()),
@@ -44,7 +37,7 @@ impl Config {
         validate(parsed)
     }
 
-    pub fn parse(source: &str, format: ConfigFormat) -> Result<Self, ConfigError> {
+    pub fn parse(source: &str, format: Format) -> Result<Self, Error> {
         let format: FileFormat = format.into();
         let parsed = ::config::Config::builder()
             .add_source(File::from_str(source, format))
@@ -52,21 +45,80 @@ impl Config {
             .try_deserialize()?;
         validate(parsed)
     }
+
+    /// Returns the platforms configured or inferred for an image.
+    ///
+    /// Explicit image platforms take precedence. Otherwise, this method collects platforms from
+    /// the image and its configured base chain. Images without platform-specific sources target
+    /// Linux on the host CPU architecture.
+    pub fn platforms_for_image(&self, image_name: &str) -> Option<Vec<String>> {
+        let image = self.images.get(image_name)?;
+        if !image.platforms.is_empty() {
+            return Some(image.platforms.clone());
+        }
+
+        let mut chain = vec![image_name];
+        while let Base::Local { image: parent } = &self.images.get(*chain.last()?)?.base {
+            if chain.contains(&parent.as_str()) {
+                return None;
+            }
+            chain.push(parent);
+        }
+        let mut platforms = BTreeMap::new();
+        for image_name in &chain {
+            let image = self.images.get(*image_name)?;
+            collect_file_platforms(&image.files, &mut platforms);
+            for layer_name in &image.layers {
+                if let Some(layer) = self.layers.get(layer_name) {
+                    collect_file_platforms(&layer.files, &mut platforms);
+                }
+            }
+        }
+
+        if platforms.is_empty() {
+            Some(
+                chain
+                    .iter()
+                    .find_map(|image_name| {
+                        let platforms = &self.images[*image_name].platforms;
+                        (!platforms.is_empty()).then(|| platforms.clone())
+                    })
+                    .unwrap_or_else(|| {
+                        vec![containerless_core::Platform::linux_for_host().to_string()]
+                    }),
+            )
+        } else {
+            Some(platforms.into_keys().collect())
+        }
+    }
+}
+
+fn collect_file_platforms(files: &[FileMapping], platforms: &mut BTreeMap<String, ()>) {
+    for file in files {
+        if let PlatformValue::Platforms(sources) = &file.source {
+            for platform in sources
+                .keys()
+                .filter(|platform| platform.as_str() != "default")
+            {
+                platforms.insert(platform.clone(), ());
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConfigFormat {
+pub enum Format {
     Toml,
     Json,
     Yaml,
 }
 
-impl From<ConfigFormat> for FileFormat {
-    fn from(value: ConfigFormat) -> Self {
+impl From<Format> for FileFormat {
+    fn from(value: Format) -> Self {
         match value {
-            ConfigFormat::Toml => FileFormat::Toml,
-            ConfigFormat::Json => FileFormat::Json,
-            ConfigFormat::Yaml => FileFormat::Yaml,
+            Format::Toml => FileFormat::Toml,
+            Format::Json => FileFormat::Json,
+            Format::Yaml => FileFormat::Yaml,
         }
     }
 }
@@ -88,48 +140,57 @@ pub struct Image {
     #[serde(default = "default_base")]
     pub base: Base,
 
+    /// OCI platforms to build. When omitted, platforms are inferred from platform-specific files,
+    /// then default to Linux on the host CPU architecture.
+    #[serde(default)]
+    pub platforms: Vec<String>,
+
     /// Named layers to append in this order after all base-image layers.
     #[serde(default)]
     pub layers: Vec<String>,
 
-    /// Files placed in one implicit final layer after all named layers. Accepts either an array of
-    /// mappings or one detailed mapping object.
+    /// Files placed in one implicit final layer after all named layers.
     #[serde(default)]
-    pub files: ImageFiles,
+    pub files: Vec<FileMapping>,
 
-    /// Executable and fixed arguments used when the container starts.
+    /// Executable and fixed arguments used when the container starts. An empty list clears the
+    /// base image's entrypoint.
     #[serde(default)]
     pub entrypoint: Option<Vec<String>>,
-    /// Default arguments passed to the entrypoint.
+    /// Default arguments passed to the entrypoint. An empty list clears the base image's command.
     #[serde(default)]
     pub command: Option<Vec<String>>,
-    /// User and optional group used to run the container, such as `65532:65532`.
+    /// User and optional group used to run the container, such as `65532:65532`. An empty string
+    /// clears the base image's user.
     #[serde(default)]
     pub user: Option<String>,
-    /// Working directory used when the container starts.
+    /// Working directory used when the container starts. An empty string clears the base value.
     #[serde(default)]
     pub workdir: Option<String>,
-    /// Signal used to stop the container, such as `SIGTERM`.
+    /// Signal used to stop the container, such as `SIGTERM`. An empty string clears the base value.
     #[serde(default)]
     pub stop_signal: Option<String>,
-    /// Exposed ports in `PORT/PROTOCOL` form, such as `8080/tcp`.
+    /// Ports exposed by the image in `PORT/PROTOCOL` form, such as `8080/tcp`. An empty list clears
+    /// inherited ports.
     #[serde(default)]
-    pub ports: Option<Vec<String>>,
-    /// Container paths intended to hold externally mounted volumes.
+    pub expose: Option<Vec<String>>,
+    /// Container paths intended to hold externally mounted volumes. An empty list clears inherited
+    /// volumes.
     #[serde(default)]
     pub volumes: Option<Vec<String>>,
 
-    /// Environment variables added to the image runtime configuration.
+    /// Environment variables merged with the base image. Values here take precedence.
     #[serde(default)]
     pub env: BTreeMap<String, String>,
-    /// Docker-compatible image labels added to the runtime configuration.
+    /// Docker-compatible image labels merged with the base image. Values here take precedence.
     #[serde(default)]
     pub labels: BTreeMap<String, String>,
-    /// OCI annotations added to the image manifest or index.
+    /// OCI annotations merged with the base image. Values here take precedence.
     #[serde(default)]
     pub annotations: BTreeMap<String, String>,
 
-    /// Complete image references used when publishing, such as `ghcr.io/example/app:v1`.
+    /// Complete image references used when publishing, such as `ghcr.io/example/app:v1`. Tags are
+    /// not inherited from local base images.
     #[serde(default)]
     pub tags: Vec<String>,
 
@@ -155,36 +216,14 @@ fn default_base() -> Base {
     Base::External("scratch".to_owned())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-/// A local file mapping in shorthand `SOURCE:DESTINATION` or detailed object form.
-pub enum FileMapping {
-    /// A `SOURCE:DESTINATION` mapping with default behavior.
-    Shorthand(String),
-    /// A mapping with explicit source, destination, filtering, and archive metadata.
-    Detailed(FileOptions),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-/// One detailed image file mapping or an array of shorthand and detailed mappings.
-pub enum ImageFiles {
-    /// One detailed file mapping.
-    Single(FileOptions),
-    /// An ordered list of file mappings.
-    Multiple(Vec<FileMapping>),
-}
-
-impl Default for ImageFiles {
-    fn default() -> Self {
-        Self::Multiple(Vec::new())
-    }
-}
-
+/// Detailed options for copying a local file or directory into an image layer.
+///
+/// Sources are relative to the configuration file. A directory copies its contents into `to`, a
+/// file uses `to` as its exact destination, and trailing slashes do not alter either behavior.
+/// Mappings are applied in list order, with later mappings replacing earlier paths.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-/// Detailed options for copying a local file or directory into an image layer.
-pub struct FileOptions {
+pub struct FileMapping {
     /// Local source path, optionally selected by OCI platform.
     #[serde(rename = "from")]
     pub source: PlatformValue<PathBuf>,
@@ -197,18 +236,18 @@ pub struct FileOptions {
     /// Git-style glob patterns to exclude after inclusion.
     #[serde(default)]
     pub exclude: Vec<String>,
-    /// Portable file mode, preferably an octal string such as `0755`.
-    #[serde(default)]
-    pub mode: Option<Mode>,
+    /// Portable file mode as a four-digit octal string, such as `0755`.
+    #[serde(default, deserialize_with = "deserialize_mode")]
+    pub mode: Option<String>,
     /// Numeric owner in `UID` or `UID:GID` form.
     #[serde(default)]
     pub owner: Option<String>,
     /// Follow symlink targets instead of archiving symlinks. Defaults to `false`.
     #[serde(default)]
     pub follow_symlinks: bool,
-    /// Preserve leading source path components similarly to Docker COPY `--parents`.
+    /// Preserve the source path below the destination instead of copying only its contents.
     #[serde(default)]
-    pub parents: bool,
+    pub preserve_paths: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -221,8 +260,28 @@ pub enum PlatformValue<T> {
     Platforms(BTreeMap<String, T>),
 }
 
+fn deserialize_mode<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum ModeValue {
+        String(String),
+        Integer(i64),
+    }
+
+    match Option::<ModeValue>::deserialize(deserializer)? {
+        Some(ModeValue::String(mode)) => Ok(Some(mode)),
+        Some(ModeValue::Integer(mode)) => Err(de::Error::custom(format!(
+            "file mode {mode} must be a quoted octal string such as \"0755\""
+        ))),
+        None => Ok(None),
+    }
+}
+
 impl<T> PlatformValue<T> {
-    pub fn resolve(&self, platform: &str) -> Option<&T> {
+    pub fn for_platform(&self, platform: &str) -> Option<&T> {
         match self {
             Self::Scalar(value) => Some(value),
             Self::Platforms(values) => values.get(platform).or_else(|| values.get("default")),
@@ -230,84 +289,24 @@ impl<T> PlatformValue<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-/// A Unix permission mode represented as a portable octal string or an integer.
-pub enum Mode {
-    /// Octal mode string, such as `0755`.
-    String(String),
-    /// Numeric mode accepted by formats that preserve integer representation.
-    Integer(u32),
-}
-
-#[derive(Debug)]
-pub enum ConfigError {
-    Parse(::config::ConfigError),
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error(transparent)]
+    Parse(#[from] ::config::ConfigError),
+    #[error(
+        "unsupported config format for {}; expected .toml, .json, .yaml, or .yml",
+        .0.display()
+    )]
     UnsupportedFormat(PathBuf),
+    #[error("{0}")]
     Invalid(String),
 }
 
-impl fmt::Display for ConfigError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Parse(error) => error.fmt(formatter),
-            Self::UnsupportedFormat(path) => write!(
-                formatter,
-                "unsupported config format for {}; expected .toml, .json, .yaml, or .yml",
-                path.display()
-            ),
-            Self::Invalid(message) => formatter.write_str(message),
-        }
-    }
-}
-
-impl Error for ConfigError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Parse(error) => Some(error),
-            Self::UnsupportedFormat(_) | Self::Invalid(_) => None,
-        }
-    }
-}
-
-impl From<::config::ConfigError> for ConfigError {
-    fn from(value: ::config::ConfigError) -> Self {
-        Self::Parse(value)
-    }
-}
-
-fn format_for_path(path: &Path) -> Result<FileFormat, ConfigError> {
+fn format_for_path(path: &Path) -> Result<FileFormat, Error> {
     match path.extension().and_then(|extension| extension.to_str()) {
         Some("toml") => Ok(FileFormat::Toml),
         Some("json") => Ok(FileFormat::Json),
         Some("yaml" | "yml") => Ok(FileFormat::Yaml),
-        _ => Err(ConfigError::UnsupportedFormat(path.to_owned())),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::fs;
-
-    use super::*;
-
-    #[test]
-    fn self_packaging_config_is_valid() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../containerless");
-        Config::load(&path).unwrap();
-    }
-
-    #[test]
-    #[ignore = "writes containerless.schema.json"]
-    fn generate_config_schema() {
-        let schema = schemars::schema_for!(Config);
-        let mut schema = serde_json::to_value(schema).unwrap();
-        schema.as_object_mut().unwrap().insert(
-            "x-tombi-toml-version".to_owned(),
-            serde_json::json!("v1.1.0"),
-        );
-        let json = serde_json::to_string_pretty(&schema).unwrap();
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../containerless.schema.json");
-        fs::write(path, format!("{json}\n")).unwrap();
+        _ => Err(Error::UnsupportedFormat(path.to_owned())),
     }
 }

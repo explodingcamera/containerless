@@ -22,21 +22,8 @@
       "description": "The external or locally configured image used as an image's base."
     },
     "FileMapping": {
-      "anyOf": [
-        {
-          "description": "A `SOURCE:DESTINATION` mapping with default behavior.",
-          "type": "string"
-        },
-        {
-          "$ref": "#/$defs/FileOptions",
-          "description": "A mapping with explicit source, destination, filtering, and archive metadata."
-        }
-      ],
-      "description": "A local file mapping in shorthand `SOURCE:DESTINATION` or detailed object form."
-    },
-    "FileOptions": {
       "additionalProperties": false,
-      "description": "Detailed options for copying a local file or directory into an image layer.",
+      "description": "Detailed options for copying a local file or directory into an image layer.\n\nSources are relative to the configuration file. A directory copies its contents into `to`, a\nfile uses `to` as its exact destination, and trailing slashes do not alter either behavior.\nMappings are applied in list order, with later mappings replacing earlier paths.",
       "properties": {
         "exclude": {
           "default": [],
@@ -64,16 +51,12 @@
           "type": "array"
         },
         "mode": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Mode"
-            },
-            {
-              "type": "null"
-            }
-          ],
           "default": null,
-          "description": "Portable file mode, preferably an octal string such as `0755`."
+          "description": "Portable file mode as a four-digit octal string, such as `0755`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "owner": {
           "default": null,
@@ -83,9 +66,9 @@
             "null"
           ]
         },
-        "parents": {
+        "preserve_paths": {
           "default": false,
-          "description": "Preserve leading source path components similarly to Docker COPY `--parents`.",
+          "description": "Preserve the source path below the destination instead of copying only its contents.",
           "type": "boolean"
         },
         "to": {
@@ -108,7 +91,7 @@
             "type": "string"
           },
           "default": {},
-          "description": "OCI annotations added to the image manifest or index.",
+          "description": "OCI annotations merged with the base image. Values here take precedence.",
           "type": "object"
         },
         "base": {
@@ -118,7 +101,7 @@
         },
         "command": {
           "default": null,
-          "description": "Default arguments passed to the entrypoint.",
+          "description": "Default arguments passed to the entrypoint. An empty list clears the base image's command.",
           "items": {
             "type": "string"
           },
@@ -129,7 +112,7 @@
         },
         "entrypoint": {
           "default": null,
-          "description": "Executable and fixed arguments used when the container starts.",
+          "description": "Executable and fixed arguments used when the container starts. An empty list clears the\nbase image's entrypoint.",
           "items": {
             "type": "string"
           },
@@ -143,13 +126,27 @@
             "type": "string"
           },
           "default": {},
-          "description": "Environment variables added to the image runtime configuration.",
+          "description": "Environment variables merged with the base image. Values here take precedence.",
           "type": "object"
         },
+        "expose": {
+          "default": null,
+          "description": "Ports exposed by the image in `PORT/PROTOCOL` form, such as `8080/tcp`. An empty list clears\ninherited ports.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "files": {
-          "$ref": "#/$defs/ImageFiles",
           "default": [],
-          "description": "Files placed in one implicit final layer after all named layers. Accepts either an array of\nmappings or one detailed mapping object."
+          "description": "Files placed in one implicit final layer after all named layers.",
+          "items": {
+            "$ref": "#/$defs/FileMapping"
+          },
+          "type": "array"
         },
         "flatten": {
           "default": false,
@@ -161,7 +158,7 @@
             "type": "string"
           },
           "default": {},
-          "description": "Docker-compatible image labels added to the runtime configuration.",
+          "description": "Docker-compatible image labels merged with the base image. Values here take precedence.",
           "type": "object"
         },
         "layers": {
@@ -172,16 +169,13 @@
           },
           "type": "array"
         },
-        "ports": {
-          "default": null,
-          "description": "Exposed ports in `PORT/PROTOCOL` form, such as `8080/tcp`.",
+        "platforms": {
+          "default": [],
+          "description": "OCI platforms to build. When omitted, platforms are inferred from platform-specific files,\nthen default to Linux on the host CPU architecture.",
           "items": {
             "type": "string"
           },
-          "type": [
-            "array",
-            "null"
-          ]
+          "type": "array"
         },
         "squash": {
           "default": false,
@@ -190,7 +184,7 @@
         },
         "stop_signal": {
           "default": null,
-          "description": "Signal used to stop the container, such as `SIGTERM`.",
+          "description": "Signal used to stop the container, such as `SIGTERM`. An empty string clears the base value.",
           "type": [
             "string",
             "null"
@@ -198,7 +192,7 @@
         },
         "tags": {
           "default": [],
-          "description": "Complete image references used when publishing, such as `ghcr.io/example/app:v1`.",
+          "description": "Complete image references used when publishing, such as `ghcr.io/example/app:v1`. Tags are\nnot inherited from local base images.",
           "items": {
             "type": "string"
           },
@@ -206,7 +200,7 @@
         },
         "user": {
           "default": null,
-          "description": "User and optional group used to run the container, such as `65532:65532`.",
+          "description": "User and optional group used to run the container, such as `65532:65532`. An empty string\nclears the base image's user.",
           "type": [
             "string",
             "null"
@@ -214,7 +208,7 @@
         },
         "volumes": {
           "default": null,
-          "description": "Container paths intended to hold externally mounted volumes.",
+          "description": "Container paths intended to hold externally mounted volumes. An empty list clears inherited\nvolumes.",
           "items": {
             "type": "string"
           },
@@ -225,7 +219,7 @@
         },
         "workdir": {
           "default": null,
-          "description": "Working directory used when the container starts.",
+          "description": "Working directory used when the container starts. An empty string clears the base value.",
           "type": [
             "string",
             "null"
@@ -233,22 +227,6 @@
         }
       },
       "type": "object"
-    },
-    "ImageFiles": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/FileOptions",
-          "description": "One detailed file mapping."
-        },
-        {
-          "description": "An ordered list of file mappings.",
-          "items": {
-            "$ref": "#/$defs/FileMapping"
-          },
-          "type": "array"
-        }
-      ],
-      "description": "One detailed image file mapping or an array of shorthand and detailed mappings."
     },
     "Layer": {
       "additionalProperties": false,
@@ -264,21 +242,6 @@
         }
       },
       "type": "object"
-    },
-    "Mode": {
-      "anyOf": [
-        {
-          "description": "Octal mode string, such as `0755`.",
-          "type": "string"
-        },
-        {
-          "description": "Numeric mode accepted by formats that preserve integer representation.",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        }
-      ],
-      "description": "A Unix permission mode represented as a portable octal string or an integer."
     },
     "PlatformValue": {
       "anyOf": [
@@ -299,15 +262,8 @@
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "A versioned collection of OCI images and reusable layers to build.",
+  "description": "A collection of OCI images and reusable layers to build.",
   "properties": {
-    "containerless": {
-      "description": "Containerless configuration format version. The only supported value is `1`.",
-      "format": "uint32",
-      "maximum": 1,
-      "minimum": 1,
-      "type": "integer"
-    },
     "images": {
       "additionalProperties": {
         "$ref": "#/$defs/Image"
@@ -325,9 +281,6 @@
       "type": "object"
     }
   },
-  "required": [
-    "containerless"
-  ],
   "title": "Containerless configuration",
   "type": "object",
   "x-tombi-toml-version": "v1.1.0"
