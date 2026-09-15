@@ -2,7 +2,21 @@
 name = "containerless-core"
 version.workspace = true
 edition.workspace = true
-description = "Config-independent OCI image construction without a container runtime"
+description = "Build OCI images without a container runtime"
 
 [lib]
 name = "containerless_core"
+
+[dependencies]
+flate2.workspace = true
+globset.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tar.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+walkdir.workspace = true
+zstd.workspace = true
