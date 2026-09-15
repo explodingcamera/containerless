@@ -1,11 +1,28 @@
+use std::collections::BTreeMap;
+use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use clap::{Args, Parser, Subcommand};
+use clap::builder::styling::{AnsiColor, Styles};
+use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
+use serde::Deserialize;
+
+use crate::CliError;
+
+const HELP_STYLES: Styles = Styles::styled()
+    .header(AnsiColor::Green.on_default().bold())
+    .usage(AnsiColor::Green.on_default().bold())
+    .literal(AnsiColor::Cyan.on_default().bold())
+    .placeholder(AnsiColor::Cyan.on_default())
+    .error(AnsiColor::Red.on_default().bold())
+    .valid(AnsiColor::Cyan.on_default().bold())
+    .invalid(AnsiColor::Yellow.on_default().bold());
 
 #[derive(Debug, Parser)]
 #[command(name = "containerless", version)]
 #[command(about = "Build minimal, multi-platform OCI images from local files")]
+#[command(styles = HELP_STYLES)]
 pub struct Cli {
     /// Configuration file. Supported extensions: toml, json, yaml, and yml.
     #[arg(short = 'f', long = "file", global = true, value_name = "PATH")]
@@ -25,19 +42,43 @@ pub enum Command {
 
     /// Resolve images and print what would be built.
     Inspect(InspectCommand),
+
+    /// Generate a shell completion script.
+    Completions(CompletionsCommand),
 }
 
 #[derive(Debug, Args)]
+pub struct CompletionsCommand {
+    /// Shell for which to generate completions.
+    #[arg(value_enum)]
+    pub shell: Shell,
+}
+
+#[derive(Debug, Args)]
+#[group(
+    id = "destination",
+    required = true,
+    multiple = true,
+    args = ["push", "output"]
+)]
 pub struct BuildCommand {
     #[command(flatten)]
     pub selection: ImageSelection,
 
     #[command(flatten)]
-    pub build: BuildOptions,
+    pub options: BuildOptions,
 
     /// Push to the configured or CLI-supplied references.
     #[arg(long)]
     pub push: bool,
+
+    /// Write an OCI archive or another selected format to this path.
+    #[arg(short = 'o', long = "output", value_name = "PATH")]
+    pub output: Option<PathBuf>,
+
+    /// Format written by --output. Defaults to oci.
+    #[arg(long, value_enum, requires = "output")]
+    pub format: Option<OutputFormat>,
 }
 
 #[derive(Debug, Args)]
@@ -46,7 +87,15 @@ pub struct PublishCommand {
     pub selection: ImageSelection,
 
     #[command(flatten)]
-    pub build: BuildOptions,
+    pub options: BuildOptions,
+
+    /// Package one local file without a configuration file.
+    #[arg(
+        long = "from",
+        value_name = "PATH",
+        conflicts_with_all = ["file", "targets", "all"]
+    )]
+    pub source: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -54,7 +103,16 @@ pub struct InspectCommand {
     #[command(flatten)]
     pub selection: ImageSelection,
 
-    /// Print the resolved description as JSON.
+    /// Resolve only these OCI platforms. May be repeated or comma-separated.
+    #[arg(
+        long = "platform",
+        value_name = "PLATFORM",
+        value_delimiter = ',',
+        value_parser = parse_platform
+    )]
+    pub platforms: Vec<String>,
+
+    /// Print the image definition as JSON.
     #[arg(long)]
     pub json: bool,
 }
@@ -70,31 +128,23 @@ pub struct ImageSelection {
     pub all: bool,
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Args, Default)]
 pub struct BuildOptions {
-    #[command(flatten)]
-    pub registry: RegistryOptions,
-
     /// Copy a local source to a destination in the image.
     ///
     /// Examples:
     ///   --copy assets:/app/assets
-    ///   --copy platform=linux/arm64,dist/linux-arm64/app:/app
-    #[arg(long = "copy", value_name = "[platform=PLATFORM,]SOURCE:DESTINATION")]
+    #[arg(long = "copy", value_name = "SOURCE:DESTINATION")]
     pub copies: Vec<CopyInput>,
 
-    /// Write a build result using Docker-style exporter options.
-    ///
-    /// Examples:
-    ///   --output type=oci,dest=image.tar
-    ///   --output type=oci-dir,dest=image-layout
-    ///   --output type=registry
-    #[arg(short = 'o', long = "output", value_name = "OPTIONS")]
-    pub outputs: Vec<Output>,
-
-    /// Load the result into an available Docker or Podman installation.
-    #[arg(long)]
-    pub load: bool,
+    /// Build only these OCI platforms. May be repeated or comma-separated.
+    #[arg(
+        long = "platform",
+        value_name = "PLATFORM",
+        value_delimiter = ',',
+        value_parser = parse_platform
+    )]
+    pub platforms: Vec<String>,
 
     /// Read tags and labels from Docker Metadata Action JSON.
     #[arg(long = "metadata-from", value_name = "PATH")]
@@ -123,11 +173,8 @@ pub struct BuildOptions {
     /// Emit the complete resulting filesystem as one layer.
     #[arg(long, conflicts_with = "squash")]
     pub flatten: bool,
-}
 
-#[derive(Debug, Args)]
-pub struct RegistryOptions {
-    /// Full image reference to publish, optionally scoped as IMAGE=REFERENCE.
+    /// Full image reference to publish, optionally scoped as IMAGE=REFERENCE. May be repeated.
     #[arg(short = 't', long = "tag", value_name = "[IMAGE=]REFERENCE")]
     pub tags: Vec<String>,
 
@@ -136,9 +183,57 @@ pub struct RegistryOptions {
     pub plain_http: Vec<String>,
 }
 
+impl BuildOptions {
+    pub(super) fn apply_metadata(&mut self) -> Result<(), CliError> {
+        let Some(path) = &self.metadata_from else {
+            return Ok(());
+        };
+        let metadata: DockerMetadata = serde_json::from_slice(&fs::read(path)?)?;
+        self.tags.splice(0..0, metadata.tags);
+        self.labels.splice(0..0, metadata.labels.assignments()?);
+        self.annotations
+            .splice(0..0, metadata.annotations.assignments()?);
+        Ok(())
+    }
+}
+
+#[derive(Deserialize)]
+struct DockerMetadata {
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    labels: MetadataValues,
+    #[serde(default)]
+    annotations: MetadataValues,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(untagged)]
+enum MetadataValues {
+    Map(BTreeMap<String, String>),
+    List(Vec<String>),
+    #[default]
+    Empty,
+}
+
+impl MetadataValues {
+    fn assignments(self) -> Result<Vec<KeyValue>, CliError> {
+        match self {
+            Self::Map(values) => Ok(values
+                .into_iter()
+                .map(|(key, value)| KeyValue { key, value })
+                .collect()),
+            Self::List(values) => values
+                .into_iter()
+                .map(|assignment| assignment.parse().map_err(CliError::Resolution))
+                .collect(),
+            Self::Empty => Ok(Vec::new()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CopyInput {
-    pub platform: Option<String>,
     pub source: PathBuf,
     pub destination: String,
 }
@@ -147,31 +242,14 @@ impl FromStr for CopyInput {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let mut parts = value.split(',').collect::<Vec<_>>();
-        let mapping = parts
-            .pop()
-            .filter(|mapping| !mapping.is_empty())
-            .ok_or_else(|| "copy mapping must end with SOURCE:DESTINATION".to_owned())?;
-        let mut platform = None;
-        for option in parts {
-            let Some((name, value)) = option.split_once('=') else {
-                return Err(format!("copy option {option:?} must be KEY=VALUE"));
-            };
-            match name {
-                "platform" if platform.is_some() => {
-                    return Err("copy platform cannot be specified more than once".to_owned());
-                }
-                "platform" if value.contains('/') => platform = Some(value.to_owned()),
-                "platform" => {
-                    return Err(
-                        "copy platform must be an OCI platform such as linux/amd64".to_owned()
-                    );
-                }
-                _ => return Err(format!("unknown copy option {name:?}")),
-            }
+        if value.starts_with("platform=") {
+            return Err(
+                "platform-specific copies belong in the configuration file; use --platform to select output platforms"
+                    .to_owned(),
+            );
         }
-        let Some((source, destination)) = mapping.split_once(':') else {
-            return Err("copy mapping must end with SOURCE:DESTINATION".to_owned());
+        let Some((source, destination)) = value.split_once(':') else {
+            return Err("copy mapping must be SOURCE:DESTINATION".to_owned());
         };
         if source.is_empty() {
             return Err("copy source cannot be empty".to_owned());
@@ -181,7 +259,6 @@ impl FromStr for CopyInput {
         }
 
         Ok(Self {
-            platform,
             source: source.into(),
             destination: destination.to_owned(),
         })
@@ -194,65 +271,18 @@ pub struct KeyValue {
     pub value: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Output {
-    pub kind: OutputType,
-    pub destination: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutputType {
-    Registry,
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+pub enum OutputFormat {
+    #[default]
     Oci,
-    Docker,
+    #[value(name = "oci-dir")]
     OciDirectory,
 }
 
-impl FromStr for Output {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let mut kind = None;
-        let mut destination = None;
-
-        for option in value.split(',') {
-            let Some((name, value)) = option.split_once('=') else {
-                return Err(format!("output option {option:?} must be KEY=VALUE"));
-            };
-            if value.is_empty() {
-                return Err(format!("output option {name:?} cannot be empty"));
-            }
-            match name {
-                "type" if kind.is_some() => {
-                    return Err("output type cannot be specified more than once".to_owned());
-                }
-                "type" => {
-                    kind = Some(match value {
-                        "registry" => OutputType::Registry,
-                        "oci" => OutputType::Oci,
-                        "docker" => OutputType::Docker,
-                        "oci-dir" => OutputType::OciDirectory,
-                        _ => return Err(format!("unknown output type {value:?}")),
-                    });
-                }
-                "dest" if destination.is_some() => {
-                    return Err("output destination cannot be specified more than once".to_owned());
-                }
-                "dest" => destination = Some(value.into()),
-                _ => return Err(format!("unknown output option {name:?}")),
-            }
-        }
-
-        let kind = kind.ok_or_else(|| "output requires type=TYPE".to_owned())?;
-        if kind == OutputType::Registry && destination.is_some() {
-            return Err("registry output does not accept dest".to_owned());
-        }
-        if kind != OutputType::Registry && destination.is_none() {
-            return Err("non-registry output requires dest=PATH".to_owned());
-        }
-
-        Ok(Self { kind, destination })
-    }
+fn parse_platform(value: &str) -> Result<String, String> {
+    containerless_core::Platform::from_str(value)
+        .map(|platform| platform.to_string())
+        .map_err(|error| error.to_string())
 }
 
 impl FromStr for KeyValue {
@@ -269,5 +299,65 @@ impl FromStr for KeyValue {
             key: key.to_owned(),
             value: value.to_owned(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_build_outputs_and_scoped_tags() {
+        let cli = Cli::try_parse_from([
+            "containerless",
+            "build",
+            "app",
+            "--output",
+            "app.tar",
+            "--format",
+            "oci-dir",
+            "--push",
+            "--tag",
+            "app=ghcr.io/example/app:latest",
+        ])
+        .unwrap();
+
+        let Command::Build(command) = cli.command else {
+            panic!("expected build command");
+        };
+        assert_eq!(command.output, Some("app.tar".into()));
+        assert_eq!(command.format, Some(OutputFormat::OciDirectory));
+        assert_eq!(command.options.tags, ["app=ghcr.io/example/app:latest"]);
+    }
+
+    #[test]
+    fn parses_zero_config_publish() {
+        let cli = Cli::try_parse_from([
+            "containerless",
+            "publish",
+            "--from",
+            "dist/app",
+            "--tag",
+            "ghcr.io/example/app:latest",
+            "--platform",
+            "linux/amd64,linux/arm64",
+        ])
+        .unwrap();
+
+        let Command::Publish(command) = cli.command else {
+            panic!("expected publish command");
+        };
+        assert_eq!(command.source, Some("dist/app".into()));
+        assert_eq!(command.options.platforms, ["linux/amd64", "linux/arm64"]);
+    }
+
+    #[test]
+    fn parses_completion_shell() {
+        let cli = Cli::try_parse_from(["containerless", "completions", "fish"]).unwrap();
+
+        let Command::Completions(command) = cli.command else {
+            panic!("expected completions command");
+        };
+        assert_eq!(command.shell, Shell::Fish);
     }
 }
