@@ -171,6 +171,8 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 name = "cargo-containerless"
 version = "0.1.0"
 dependencies = [
+ "clap",
+ "clap-cargo",
  "containerless",
 ]
 
@@ -231,6 +233,16 @@ checksum = "aa8876b300ab35ba921adea3dfd70157a46249b33f95c9084ae5709785478946"
 dependencies = [
  "clap_builder",
  "clap_derive",
+]
+
+[[package]]
+name = "clap-cargo"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac0fb996b5acdd543c8b8ff723c719715d437fdce607ac1fda01c977f568020d"
+dependencies = [
+ "anstyle",
+ "clap",
 ]
 
 [[package]]

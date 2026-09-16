@@ -12,12 +12,9 @@ edition = "2024"
 
 [workspace.dependencies]
 clap = { version = "4.6", features = ["derive"] }
+clap-cargo = "0.19"
 clap_complete = "4.6"
-config = { version = "0.15", default-features = false, features = [
-  "json",
-  "toml",
-  "yaml"
-] }
+config = { version = "0.15", default-features = false, features = ["json", "toml", "yaml"] }
 containerless = { path = "crates/containerless" }
 containerless-core = { path = "crates/containerless-core" }
 docker_credential = "1.4"

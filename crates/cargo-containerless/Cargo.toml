@@ -9,4 +9,6 @@ name = "cargo-containerless"
 path = "src/main.rs"
 
 [dependencies]
+clap.workspace = true
+clap-cargo.workspace = true
 containerless.workspace = true
