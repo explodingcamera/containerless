@@ -1,14 +1,11 @@
 # Containerless
 
-> Work in progress
+> [!WARNING]
+> Containerless is experimental and hasn't had a release yet. Commands and configuration may change.
 
 Containerless makes building minimal, multi-platform container images simple.
 
-It is a lightweight OCI image builder for local build outputs. Point it at your files, choose a base
-image and runtime metadata, then publish to a registry or export an archive.
-
-Containerless is a good fit for small images, multi-platform releases, and lightweight CI. It can
-assemble each platform from separately built artifacts without a daemon or privileged setup.
+Read the [documentation](https://containerless.dev) to get started.
 
 ## See Also
 

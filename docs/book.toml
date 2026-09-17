@@ -1,0 +1,15 @@
+[book]
+authors = ["Containerless contributors"]
+language = "en"
+src = "src"
+title = "containerless.dev"
+description = "Build minimal, multi-platform OCI images from local files"
+
+[output.html]
+theme = "theme"
+sidebar-header-nav = true
+git-repository-url = "https://github.com/explodingcamera/containerless"
+
+[output.html.fold]
+enable = false
+level = 0
